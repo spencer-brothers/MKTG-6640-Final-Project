@@ -1,0 +1,94 @@
+---
+title: Restaurant Reviews Analysis
+output: 
+  html_document: 
+    toc: true
+---
+
+# Introduction
+
+Customer reviews serve as a powerful tool for business decision-making. By analyzing review data, restaurants can gain a deeper understanding of the competitive landscape, gauge public sentiment, identify emerging trends, assess pricing strategies across the market, and even refine their location strategies. In short, review data empowers restaurants to make informed, data-driven decisions that enhance both operational effectiveness and customer satisfaction.
+
+
+## Business Problem
+
+Online reviews on sites like Yelp offer valuable insights, but there are too many for restaurant owners or marketers to read manually. Analyzing them at scale helps businesses make smarter decisions, like adjusting menus, improving service, or refining marketing. Research shows customer reviews strongly influence both strategy and appeal. This project simulates a real-world consulting scenario where we act as analytics advisors for a restaurant group or a city’s tourism department. By applying text analytics to Yelp reviews, we’ll uncover common sentiments and themes to guide business decisions. Text data reveals patterns in market trends, competition, and operations, turning raw feedback into strategic insight.
+
+## Data Description
+
+This dataset was collected by scraping Yelp’s search results for top-rated restaurants in Los Angeles. A Python script using the BeautifulSoup library was used to extract relevant information directly from the HTML of Yelp pages. The final dataset includes 240 entries, each representing a top-recommended restaurant in LA. For each restaurant, the data includes details such as star ratings, review counts, cuisine type, price range, and user comments.
+
+[Link to dataset](https://www.kaggle.com/datasets/lorentzyeung/top-240-recommended-restaurants-in-la-2023?resource=download&select=top+240+restaurants+recommanded+in+los+angeles+URL.csv)
+
+### Features
+
+- **Rank**: The restaurant’s position in Yelp’s list of top recommendations.
+- **CommentDate**: The date a customer posted their comment.
+- **Date**: When the data was scraped.
+- **RestaurantName**: The name of the restaurant.
+- **Comment**: A user-submitted review or comment about the restaurant.
+- **Address**: The restaurant’s location.
+- **StarRating**: The average rating (out of 5 stars) based on user reviews.
+- **NumberOfReviews**: Total number of reviews the restaurant has received.
+- **Style**: The type of cuisine served (e.g., Italian, Japanese).
+- **Price**: The general price range, represented with dollar signs (\$ to \$\$\$\$).
+
+# Setup
+
+```{r Setup}
+# Set seed for reproducibility
+set.seed(42)
+
+# Import packages
+#install.packages("quanteda")
+#install.packages("tidytext")
+library(tidyverse)
+library(dplyr)
+library(quanteda)
+library(tidytext)
+
+# Load raw datafile
+restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
+
+summary(restaurant_raw)
+```
+
+The date column only has one value, the date the data were collected from Yelp. We will remove this column and convert the restaurant name, address, and price columns to factors. 
+
+```{r Preliminary Cleaning}
+restaurant_raw <- restaurant_raw |>
+  select(-Date) |>
+  mutate(
+    RestaurantName = as.factor(RestaurantName),
+    Price = as.factor(Price)
+  )
+
+summary(restaurant_raw)
+```
+
+# TODO: Exploratory Data Analysis - Bryson and Radhika
+
+# Text Preprocessing
+
+```{r}
+# Convert Comments to tokens
+restaurant_raw_tokens <- tokens(restaurant_raw$Comment,
+                               what="word", remove_numbers=T,
+                               remove_punct=T, remove_symbols=T) |>
+  tokens_remove(stopwords("en", source="snowball")) |>
+  tokens_tolower()
+
+# Create DFM, removing terms which occur in less than 1% of all docs and more than 90% of all docs.
+restaurant_raw_dfm <- restaurant_raw_tokens  |>
+  dfm() |>
+  dfm_trim(min_docfreq=0.01, max_docfreq=0.9, docfreq_type="prop")
+```
+
+
+
+
+
+
+
+
+
