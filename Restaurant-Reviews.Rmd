@@ -165,7 +165,63 @@ restaurant_raw_dfm <- restaurant_raw_tokens  |>
 ```
 
 
+# LDA
+```{r}
+# Create a corpus from the Comment column
+corpus <- VCorpus(VectorSource(restaurant_raw$Comment))
 
+# Clean the text
+corpus <- corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace)
+
+# Create a Document-Term Matrix
+dtm <- DocumentTermMatrix(corpus)
+
+# Remove sparse terms to reduce dimensionality
+dtm_sparse <- removeSparseTerms(dtm, 0.98)
+
+# Run LDA with 3 topics
+k <- 3
+
+# Remove empty rows from DTM
+row_totals <- apply(dtm_sparse, 1, sum)
+dtm_filtered <- dtm_sparse[row_totals > 0, ]
+
+# Run LDA
+lda_model <- LDA(dtm_filtered, k = k, control = list(seed = 1234))
+
+# View top 10 terms in each topic
+terms(lda_model, 10)
+
+# Tidy format of topics and terms
+library(tidytext)
+topics <- tidy(lda_model, matrix = "beta")
+
+# Get top 10 terms per topic
+top_terms <- topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+# Plot top terms for each topic
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  labs(
+    title = "Top 10 Terms per LDA Topic",
+    x = NULL,
+    y = "Term Importance (Beta)"
+  )
+```
 
 
 
