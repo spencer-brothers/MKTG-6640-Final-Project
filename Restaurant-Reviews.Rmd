@@ -46,6 +46,7 @@ library(tidyverse)
 library(dplyr)
 library(quanteda)
 library(tidytext)
+library(lubridate)
 
 # Load raw datafile
 restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
@@ -62,11 +63,90 @@ restaurant_raw <- restaurant_raw |>
     RestaurantName = as.factor(RestaurantName),
     Price = as.factor(Price)
   )
-
+# summary statistics
 summary(restaurant_raw)
 ```
 
 # TODO: Exploratory Data Analysis - Bryson and Radhika
+
+```{r eda}
+# table of counts by Restaurant style
+top_styles <- sort(table(restaurant_raw$Style), decreasing = TRUE)
+# see top 5 
+head(top_styles, 5)
+
+# dist of prices, including those with no price
+table(restaurant_raw$Price, useNA = "ifany")
+
+# how many unique restaurants
+length(unique(restaurant_raw$RestaurantName))
+
+# how many NA's by column
+colSums(is.na(restaurant_raw))
+
+# Distribution of star ratings
+restaurant_raw |>
+  ggplot(aes(x = StarRating)) +
+  geom_histogram(binwidth = .25) +
+  labs(title = "Distribution of Star Ratings",
+       x = "Star Rating",
+       y = "Count")
+
+# Price
+ggplot(restaurant_raw, aes(x = fct_explicit_na(Price, na_level = "Unknown"))) +
+  geom_bar() +
+  labs(title = "Counts of Price Ranges",
+       x = "Price Range")
+
+# Star rating vs. Number of reviews
+ggplot(restaurant_raw, aes(x = factor(StarRating), y = NumberOfReviews)) +
+  geom_boxplot() +
+  labs(title = "Number of Reviews by Star Rating",
+       x = "Star Rating",
+       y = "Number of Reviews")
+
+# price by star rating
+ggplot(restaurant_raw, aes(x = StarRating, y = Price)) +
+  geom_boxplot() +
+  labs(title = "Star Rating by Price",
+       x = "Star Rating",
+       y = "Price")
+
+# number of reviews by price
+ggplot(restaurant_raw, aes(x = Price, y = NumberOfReviews)) +
+  geom_boxplot() +
+  labs(title = "Number of Reviews by Price",
+       x = "Price",
+       y = "Number of Reviews")
+
+# count of comments over time
+restaurant_raw %>%
+  mutate(month = floor_date(CommentDate, "month")) %>%
+  count(month) %>%
+  ggplot(aes(x = month, y = n)) +
+  geom_line() +
+  labs(title = "Comments Over Time", x = "Month", y = "Count")
+# only last 10 reviews for restaurant scraped, explaining the large spike at end
+
+# heatmap of number of comments by day of week and month
+restaurant_raw %>%
+  filter(!is.na(CommentDate)) %>%
+  mutate(
+    Weekday = wday(CommentDate, label = TRUE, abbr = TRUE),
+    Month = month(CommentDate, label = TRUE, abbr = TRUE)
+  ) %>%
+  count(Month, Weekday) %>%
+  ggplot(aes(x = Weekday, y = Month, fill = n)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightyellow", high = "red") +
+  labs(
+    title = "Heatmap of Comments by Day of Week and Month",
+    x = "Day of Week",
+    y = "Month",
+    fill = "Number of Comments"
+  ) +
+  theme_minimal()
+```
 
 # Text Preprocessing
 
