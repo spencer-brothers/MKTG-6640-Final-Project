@@ -47,6 +47,12 @@ library(dplyr)
 library(quanteda)
 library(tidytext)
 library(lubridate)
+library(tm)
+library(slam)
+library(text2vec)
+library(wordcloud)
+library(topicmodels)
+library(irlba)
 
 # Load raw datafile
 restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
@@ -223,8 +229,78 @@ top_terms %>%
   )
 ```
 
+```{r lsa, fig.heat = 10, fig.width = 10}
+# Preprocess the text data: Clean and preprocess the reviews
+clean_text <- function(text) {
+  text <- tolower(text)  # Convert to lowercase
+  text <- removePunctuation(text)  # Remove punctuation
+  text <- removeNumbers(text)  # Remove numbers
+  text <- removeWords(text, stopwords("en"))  # Remove stopwords
+  text <- stripWhitespace(text)  # Remove extra spaces
+  return(text)
+}
+
+# Apply text cleaning to the 'Comment' column
+restaurant_raw$Cleaned_Comment <- sapply(restaurant_raw$Comment, clean_text)
+
+# Tokenize and vectorize the text using TF-IDF
+# Create a vocabulary and tokenizer
+it <- itoken(restaurant_raw$Cleaned_Comment, progressbar = TRUE)
+
+# Create a vocabulary and a document-term matrix (DTM)
+vectorizer <- vocab_vectorizer(vocabulary = create_vocabulary(it))
+dtm <- create_dtm(it, vectorizer)
+
+# Apply TF-IDF transformation
+tfidf <- TfIdf$new()
+tfidf_matrix <- tfidf$fit_transform(dtm)
+
+# Perform LSA by applying Singular Value Decomposition (SVD)
+svd_model <- irlba(tfidf_matrix, nv = 5)  # 5 topics (adjust based on the data size)
+topics_matrix <- svd_model$u %*% diag(svd_model$d)
+
+# Inspect the topics (top words per topic)
+terms <- colnames(tfidf_matrix)
+
+# Function to extract top terms for each topic
+topic_terms <- function(matrix, terms, top_n = 10) {
+  result <- list()
+  for (i in 1:ncol(matrix)) {
+    topic_terms <- order(matrix[, i], decreasing = TRUE)[1:top_n]
+    result[[i]] <- terms[topic_terms]
+  }
+  return(result)
+}
+
+# Get the top terms for each topic
+top_words <- topic_terms(topics_matrix, terms)
+print(top_words)
+
+# Example: Assign topics to each review based on maximum value
+topic_assignment <- apply(topics_matrix, 1, function(row) which.max(row))
+restaurant_raw$Assigned_Topic <- topic_assignment
+
+# Summary of topic distribution
+topic_counts <- table(restaurant_raw$Assigned_Topic)
+print(topic_counts)
+
+# terms for each topic
+topic_word_matrix <- svd_model$v %*% diag(svd_model$d)
+rownames(topic_word_matrix) <- colnames(tfidf_matrix)
 
 
+# Word cloud visualization for topics
+for (i in 1:ncol(topic_word_matrix)) {
+  word_freq <- sort(topic_word_matrix[, i], decreasing = TRUE)[1:50]
+  word_freq <- word_freq[!is.na(word_freq) & word_freq > 0]
+  wordcloud(names(word_freq), freq = word_freq, min.freq = 1, scale = c(3, 0.5), colors = brewer.pal(8, "Dark2"))
+}
 
+# Visualizing the topic distribution for each restaurant
+ggplot(restaurant_raw, aes(x = as.factor(Assigned_Topic))) +
+  geom_bar() +
+  labs(title = "Topic Distribution Across Reviews", x = "Topic", y = "Number of Reviews")
+
+```
 
 
