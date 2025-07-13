@@ -33,6 +33,10 @@ This dataset was collected by scraping Yelp’s search results for top-rated res
 - **Style**: The type of cuisine served (e.g., Italian, Japanese).
 - **Price**: The general price range, represented with dollar signs (\$ to \$\$\$\$).
 
+## Notebook Approach
+
+In the sections that follow, we’ll walk through a structured analysis of Yelp reviews for Los Angeles' top-rated restaurants. We’ll begin with data cleaning and exploratory analysis to understand patterns in ratings, prices, and review volume. From there, we’ll shift focus to the customer comments—preprocessing the text and applying two powerful topic modeling techniques: Latent Dirichlet Allocation (LDA) and Latent Semantic Analysis (LSA). These methods allow us to uncover the key themes and hidden structures within the reviews, providing insights into what customers consistently care about, such as service, ambiance, or food quality.
+
 # Setup
 
 ```{r Setup}
