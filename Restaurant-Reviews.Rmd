@@ -44,8 +44,21 @@ In the sections that follow, we’ll walk through a structured analysis of Yelp 
 set.seed(42)
 
 # Import packages
-#install.packages("quanteda")
-#install.packages("tidytext")
+install.packages("quanteda")
+install.packages("tidytext")
+install.packages("tm")
+install.packages("text2vec")
+install.packages("wordcloud")
+install.packages("topicmodels")
+install.packages("irlba")
+if (!require(wordVectors)) {
+  if (!(require(devtools))) {
+    install.packages("devtools")
+  }
+  devtools::install_github("bmschmidt/wordVectors")
+}
+
+library(wordVectors)
 library(tidyverse)
 library(dplyr)
 library(quanteda)
@@ -57,6 +70,7 @@ library(text2vec)
 library(wordcloud)
 library(topicmodels)
 library(irlba)
+library(parallel)
 
 # Load raw datafile
 restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
@@ -68,10 +82,9 @@ The date column only has one value, the date the data were collected from Yelp. 
 
 ```{r Preliminary Cleaning}
 restaurant_raw <- restaurant_raw |>
-  select(-Date) |>
+  select(-Date,-Price) |>
   mutate(
-    RestaurantName = as.factor(RestaurantName),
-    Price = as.factor(Price)
+    RestaurantName = as.factor(RestaurantName)
   )
 # summary statistics
 summary(restaurant_raw)
@@ -103,10 +116,10 @@ restaurant_raw |>
        y = "Count")
 
 # Price
-ggplot(restaurant_raw, aes(x = fct_explicit_na(Price, na_level = "Unknown"))) +
-  geom_bar() +
-  labs(title = "Counts of Price Ranges",
-       x = "Price Range")
+# ggplot(restaurant_raw, aes(x = fct_explicit_na(Price, na_level = "Unknown"))) +
+#   geom_bar() +
+#   labs(title = "Counts of Price Ranges",
+#       x = "Price Range")
 
 # Star rating vs. Number of reviews
 ggplot(restaurant_raw, aes(x = factor(StarRating), y = NumberOfReviews)) +
@@ -116,18 +129,18 @@ ggplot(restaurant_raw, aes(x = factor(StarRating), y = NumberOfReviews)) +
        y = "Number of Reviews")
 
 # price by star rating
-ggplot(restaurant_raw, aes(x = StarRating, y = Price)) +
-  geom_boxplot() +
-  labs(title = "Star Rating by Price",
-       x = "Star Rating",
-       y = "Price")
+# ggplot(restaurant_raw, aes(x = StarRating, y = Price)) +
+#   geom_boxplot() +
+#   labs(title = "Star Rating by Price",
+#        x = "Star Rating",
+#        y = "Price")
 
 # number of reviews by price
-ggplot(restaurant_raw, aes(x = Price, y = NumberOfReviews)) +
-  geom_boxplot() +
-  labs(title = "Number of Reviews by Price",
-       x = "Price",
-       y = "Number of Reviews")
+# ggplot(restaurant_raw, aes(x = Price, y = NumberOfReviews)) +
+#   geom_boxplot() +
+#   labs(title = "Number of Reviews by Price",
+#        x = "Price",
+#        y = "Number of Reviews")
 
 # count of comments over time
 restaurant_raw %>%
@@ -172,6 +185,43 @@ restaurant_raw_tokens <- tokens(restaurant_raw$Comment,
 restaurant_raw_dfm <- restaurant_raw_tokens  |>
   dfm() |>
   dfm_trim(min_docfreq=0.01, max_docfreq=0.9, docfreq_type="prop")
+```
+
+## Word Embeddings
+
+```{r word2vec Preprocessing}
+# Convert the comments to a raw text file
+restaurant_text <- restaurant_raw$Comment
+writeLines(restaurant_text, "restaurant_corpus.txt")
+
+# Preprocess Corpus
+prep_word2vec("restaurant_corpus.txt", 
+              destination = "restaurant_corpus_clean.txt", 
+              lowercase = TRUE, 
+              alphabets = "latin", 
+              removeNumbers = TRUE, 
+              removePunctuation = TRUE)
+
+num_cores = detectCores()
+```
+
+```{r word2vec Training}
+
+restaurant_model <- train_word2vec(
+  train_file = "restaurant_corpus_clean.txt",
+  output_file = "restaurant_vectors.bin",
+  vectors = 100,         # embedding size
+  window = 5,            # context window size
+  min_count = 5,         # ignore words that appear fewer than 5 times
+  threads = num_cores - 1,           # use multiple CPU cores
+  iter = 10              # number of training iterations
+)
+
+# Load the embeddings for use
+restaurant_embeds <- read.vectors("restaurant_vectors.bin")
+
+# Test embeddings
+closest_to(restaurant_embeds, restaurant_embeds[["pizza"]], n = 10)
 ```
 
 
