@@ -74,7 +74,9 @@ library(parallel)
 library(caret)
 
 # Load raw datafile
-restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
+# restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
+
+restaurant_raw <- read_csv("C:/Users/burrb/OneDrive/Documents/R/top 240 restaurants recommanded in los angeles 2.csv")
 
 summary(restaurant_raw)
 ```
@@ -307,7 +309,7 @@ The LDA has shown us that most of the reviews focus on the service, location and
 
 # LSA
 
-```{r lsa, fig.heat = 10, fig.width = 10}
+```{r lsa, fig.heat = 12, fig.width = 12}
 # Preprocess the text data: Clean and preprocess the reviews
 clean_text <- function(text) {
   text <- tolower(text)  # Convert to lowercase
@@ -411,10 +413,12 @@ comment_vectors <- t(sapply(restaurant_raw$Comment, get_comment_embedding,
 comment_df <- as.data.frame(comment_vectors)
 comment_df$StarRating <- restaurant_raw$StarRating 
 
+# separate into train and test
 train_index <- sample(nrow(comment_df), 0.8 * nrow(comment_df))
 train_data <- comment_df[train_index, ]
 test_data <- comment_df[-train_index, ]
 
+library(randomForest)
 rf_model <- randomForest(StarRating ~ ., data = train_data, ntree = 250, mtry = sqrt(ncol(train_data)))
 preds <- predict(rf_model, newdata = train_data)
 
@@ -428,10 +432,58 @@ sst <- sum((test_data$StarRating - mean(test_data$StarRating))^2)
 sse <- sum(residuals^2)
 r_squared <- 1 - (sse / sst)
 
+# hypertuning
+mtry_vals <- c(2, sqrt(ncol(train_data)), ncol(train_data) / 2)
+ntree_vals <- c(100, 250, 500)
+
+results <- data.frame(mtry = numeric(), ntree = numeric(), RMSE = numeric())
+
+for (m in mtry_vals) {
+  for (n in ntree_vals) {
+    set.seed(123)
+    rf_model <- randomForest(
+      StarRating ~ ., data = train_data,
+      mtry = floor(m), ntree = n
+    )
+    preds <- predict(rf_model, newdata = test_data)
+    rmse <- sqrt(mean((preds - test_data$StarRating)^2))
+    results <- rbind(results, data.frame(mtry = m, ntree = n, RMSE = rmse))
+  }
+}
+
+results[order(results$RMSE), ]
+
 # support vector machine
-svm_model <- svm(StarRating ~ ., data = train_data, kernel = "radial", cost = 1, gamma = 1/ncol(train_data))
+library(e1071)
+# manual hypertuning for svm to find best values
+cost_vals <- c(0.1, 1, 10)
+gamma_vals <- c(0.01, 0.1, 1)
+epsilon_vals <- c(0.1, 0.2, 0.3)
+
+results <- data.frame(cost = numeric(), gamma = numeric(), epsilon = numeric(), RMSE = numeric())
+
+for (c in cost_vals) {
+  for (g in gamma_vals) {
+    for (e in epsilon_vals) {
+      model <- svm(
+        StarRating ~ ., data = train_data,
+        kernel = "radial", cost = c, gamma = g, epsilon = e
+      )
+      preds <- predict(model, newdata = test_data)
+      rmse <- sqrt(mean((preds - test_data$StarRating)^2))
+      
+      results <- rbind(results, data.frame(cost = c, gamma = g, epsilon = e, RMSE = rmse))
+    }
+  }
+}
+
+results[order(results$RMSE), ]
+
+# best model parameters
+svm_model <- svm(StarRating ~ ., data = train_data, kernel = "radial", cost = 1, gamma = .01, epsilon = 0.3)
 
 svm_train_preds <- predict(svm_model, newdata = train_data)
+# RMSE for training data
 sqrt(mean((svm_train_preds - train_data$StarRating)^2))
 
 # Predict on test set
@@ -444,6 +496,9 @@ svm_sse <- sum(svm_residuals^2)
 svm_r_squared <- 1 - (svm_sse / svm_sst)
 
 svm_r_squared
+
+## low R squared, .3, tough to determine ratings just through text. 
+# language doesn't explain much rating variation
 
 lm_model <- lm(StarRating ~., data = train_data)
 
@@ -464,16 +519,32 @@ library(glmnet)
 X <- as.matrix(train_data[, -which(names(train_data) == "StarRating")])
 y <- train_data$StarRating
 
-ridge_model <- cv.glmnet(X, y, alpha = 1)
-cv_lasso <- cv.glmnet(X, y, alpha = 1)  # alpha = 1 → lasso
-cv_lasso$lambda.min
-
 X_test <- as.matrix(test_data[, -which(names(test_data) == "StarRating")])
 y_test <- test_data$StarRating
 
-lasso_model <- glmnet(X, y, alpha = 1, lambda = .004893966)
 
-lm_preds <- predict(lasso_model, s = .004893966, newx = X_test)
+ridge_model <- cv.glmnet(X, y, alpha = 0)
+best_lambda_ridge <- ridge_model$lambda.min
+
+
+lasso_model <- cv.glmnet(X, y, alpha = 1)
+best_lambda_lasso <- lasso_model$lambda.min
+
+# Ridge Predictions
+ridge_preds <- predict(ridge_model, s = best_lambda_ridge, newx = X_test)
+ridge_rmse <- sqrt(mean((ridge_preds - y_test)^2))
+
+# Lasso Predictions
+lasso_preds <- predict(lasso_model, s = best_lambda_lasso, newx = X_test)
+lasso_rmse <- sqrt(mean((lasso_preds - y_test)^2))
+
+elastic_model <- cv.glmnet(X, y, alpha = .5)
+best_lambda_elastic <- elastic_model$lambda.min
+
+elastic_preds <- predict(elastic_model, s = best_lambda_elastic, newx = X_test)
+elastic_rmse <- sqrt(mean((elastic_preds - y_test)^2))
+elastic_rmse
+
 
 sqrt(mean((lm_preds - y_test)^2))
 lm_residuals <- lm_preds - test_data$StarRating
@@ -484,4 +555,86 @@ lm_r_squared <- 1 - (lm_sse / lm_sst)
 lm_r_squared
 
 ## SVM model performed best so far
+plot(test_data$StarRating, svm_preds, 
+     xlab = "Actual", ylab = "Predicted", 
+     main = "Actual vs. Predicted Star Ratings")
+
+```
+
+```{r tfidf predictions}
+topics_df <- as.data.frame(topics_matrix)
+topics_df$StarRating <- restaurant_raw$StarRating
+
+train_indices <- sample(seq_len(nrow(topics_df)), size = 0.8 * nrow(topics_df))
+train_data <- topics_df[train_indices, ]
+test_data <- topics_df[-train_indices, ]
+
+lm_model <- lm(StarRating ~ ., data = train_data)
+
+preds <- predict(lm_model, newdata = test_data)
+sqrt(mean((preds - test_data$StarRating)^2))
+
+
+X <- as.matrix(train_data[, -which(names(train_data) == "StarRating")])
+y <- train_data$StarRating
+
+X_test <- as.matrix(test_data[, -which(names(test_data) == "StarRating")])
+y_test <- test_data$StarRating
+
+
+ridge_model <- cv.glmnet(X, y, alpha = 0)
+best_lambda_ridge <- ridge_model$lambda.min
+
+
+lasso_model <- cv.glmnet(X, y, alpha = 1)
+best_lambda_lasso <- lasso_model$lambda.min
+
+# Ridge Predictions
+ridge_preds <- predict(ridge_model, s = best_lambda_ridge, newx = X_test)
+ridge_rmse <- sqrt(mean((ridge_preds - y_test)^2))
+
+# Lasso Predictions
+lasso_preds <- predict(lasso_model, s = best_lambda_lasso, newx = X_test)
+lasso_rmse <- sqrt(mean((lasso_preds - y_test)^2))
+
+elastic_model <- cv.glmnet(X, y, alpha = .5)
+best_lambda_elastic <- elastic_model$lambda.min
+
+elastic_preds <- predict(elastic_model, s = best_lambda_elastic, newx = X_test)
+elastic_rmse <- sqrt(mean((elastic_preds - y_test)^2))
+elastic_rmse
+ridge_rmse
+lasso_rmse
+
+svm_model <- svm(StarRating ~ ., data = train_data, kernel = "radial", cost = 1, gamma = .01, epsilon = 0.3)
+svm_train_preds <- predict(svm_model, newdata = train_data)
+# RMSE for training data
+sqrt(mean((svm_train_preds - train_data$StarRating)^2))
+
+# Predict on test set
+svm_preds <- predict(svm_model, newdata = test_data)
+sqrt(mean((svm_preds - test_data$StarRating)^2))
+
+cost_vals <- c(0.1, 1, 10)
+gamma_vals <- c(0.01, 0.1, 1)
+epsilon_vals <- c(0.1, 0.2, 0.3)
+
+results <- data.frame(cost = numeric(), gamma = numeric(), epsilon = numeric(), RMSE = numeric())
+
+for (c in cost_vals) {
+  for (g in gamma_vals) {
+    for (e in epsilon_vals) {
+      model <- svm(
+        StarRating ~ ., data = train_data,
+        kernel = "radial", cost = c, gamma = g, epsilon = e
+      )
+      preds <- predict(model, newdata = test_data)
+      rmse <- sqrt(mean((preds - test_data$StarRating)^2))
+      
+      results <- rbind(results, data.frame(cost = c, gamma = g, epsilon = e, RMSE = rmse))
+    }
+  }
+}
+
+summary(lm_model)
 ```
