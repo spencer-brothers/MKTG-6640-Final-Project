@@ -179,7 +179,7 @@ restaurant_raw %>%
 restaurant_raw_tokens <- tokens(restaurant_raw$Comment,
                                what="word", remove_numbers=T,
                                remove_punct=T, remove_symbols=T) |>
-  #tokens_remove(stopwords("en", source="snowball")) |>
+  tokens_remove(stopwords("en")) |>
   tokens_tolower()
 
 # Create DFM, removing terms which occur in less than 1% of all docs and more than 90% of all docs.
@@ -230,52 +230,54 @@ closest_to(restaurant_embeds, restaurant_embeds[["pizza"]], n = 10)
 
 LDA (Latent Dirichlet Allocation) is a topic modeling technique that helps uncover hidden themes in large sets of text data. Applying it to restaurant comments allows us to identify common topics—like service quality, cuisine types, or ambiance—without reading every review manually. This provides a scalable way to summarize customer feedback and understand what people are consistently saying about LA’s top restaurants.
 
-## LDA pre-processing
+Let's start with finding our optimal k value.
 
-Let's create a corpus for our LDA, clean the text and generate a document term matrix for analysis.
-
-```{r lda prep}
-# Create a corpus from the Comment column
-corpus <- VCorpus(VectorSource(restaurant_raw$Comment))
-
-# Clean the text
-corpus <- corpus %>%
-  tm_map(content_transformer(tolower)) %>%
-  tm_map(removePunctuation) %>%
-  tm_map(removeNumbers) %>%
-  tm_map(removeWords, stopwords("english")) %>%
-  tm_map(stripWhitespace)
-
-# Create a Document-Term Matrix
-dtm <- DocumentTermMatrix(corpus)
+## Finding K
+```{r optimize k}
+dtm_sparse <- convert(restaurant_raw_dfm, to = "topicmodels")
 
 # Remove sparse terms to reduce dimensionality
-dtm_sparse <- removeSparseTerms(dtm, 0.98)
-```
-
-Now that the data is prepped, let's run LDA with 3 topics.
-
-## Running LDA
-```{r lda with 3 topics}
-# Run LDA with 3 topics
-k <- 3
+# dtm_sparse <- removeSparseTerms(dtm_converted, 0.98)
 
 # Remove empty rows from DTM
 row_totals <- apply(dtm_sparse, 1, sum)
 dtm_filtered <- dtm_sparse[row_totals > 0, ]
 
+#remotes::install_github("nikita-moor/ldatuning")
+library(ldatuning)
+
+# Compute the K value "scores" from K=2 to K=25
+result <- FindTopicsNumber(
+    dtm_filtered,
+    topics = seq(from = 2, to = 25, by = 1),
+    metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+    method = "Gibbs",#Gibbs can used too
+    control = list(seed = 1971),
+    mc.cores = 2L,
+    return_models= TRUE,
+    verbose = TRUE
+)
+
+FindTopicsNumber_plot(result)
+```
+
+We will use 25 topics because that appears to be the optimal number of topics based on the ldatuning model. 
+
+## Run LDA
+```{r run lda}
 # Run LDA
-lda_model <- LDA(dtm_filtered, k = k, control = list(seed = 1234))
+lda_model <- LDA(dtm_filtered, k = 25, control = list(seed = 1234))
 
 # View top 10 terms in each topic
 terms(lda_model, 10)
 ```
+
 It looks like the most important topics are positive and centered around service, location and ambiance. 
 
 Let's visualize these topics to gain a little more clarity.
 
 ## Visualizing topics
-```{r visualize topics}
+```{r visualize topics, fig.width = 15}
 # Tidy format of topics and terms
 topics <- tidy(lda_model, matrix = "beta")
 
@@ -300,6 +302,8 @@ top_terms %>%
     y = "Term Importance (Beta)"
   )
 ```
+
+The LDA has shown us that most of the reviews focus on the service, location and ambiance but it doesn't give us a lot of actional insight. To get better insights, we will now look at an LSA and some predictive analytics to try to extract what kind of service or what location drives the most positive reviews. 
 
 # LSA
 
