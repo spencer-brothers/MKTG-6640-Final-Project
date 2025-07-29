@@ -74,9 +74,7 @@ library(parallel)
 library(caret)
 
 # Load raw datafile
-# restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
-
-restaurant_raw <- read_csv("C:/Users/burrb/OneDrive/Documents/R/top 240 restaurants recommanded in los angeles 2.csv")
+restaurant_raw <- read_csv("top 240 restaurants recommanded in los angeles 2.csv")
 
 summary(restaurant_raw)
 ```
@@ -385,15 +383,17 @@ ggplot(restaurant_raw, aes(x = as.factor(Assigned_Topic))) +
 
 To analyze the key themes in customer feedback, we applied Latent Semantic Analysis (LSA). After cleaning and preprocessing the review text which involved removing punctuation, numbers, stop words, and standardizing the text, the clean comments were transformed using TF-IDF vectorization, which weights terms based on their importance in the context of all reviews. Singular Value Decomposition (SVD) was then used to reduce the dimensionality of this matrix and extract five latent topics, each representing a cluster of frequently co-occurring words. Each review was assigned to the topic it aligned with most strongly. The topic distribution revealed that Topic 2 dominated overwhelmingly, with over 2,000 reviews assigned to it, while the remaining topics had very few reviews. This indicates that one central theme is driving the majority of customer sentiment. Word clouds generated for each topic show that the most frequently mentioned words include “great,” “amazing,” “food,” and “service,” suggesting that the dominant topic likely reflects overall positive dining experiences, with customers praising food quality and service. This insight helps highlight what customers value most and underscores the importance of consistently delivering excellent food and service in the restaurant industry.
 
-```{r predictive analytics}
-# Get vocabulary from trained embeddings
+# Predicting Star Rating Using Word Embeddings
+
+```{r predictive analytics prep}
+# getting vocab from embeddings
 embedding_vocab <- rownames(restaurant_embeds)
 
 # Tokenize and average word embeddings per comment
 get_comment_embedding <- function(comment, embeddings, vocab) {
-  # Match prep_word2vec processing: lowercase + remove numbers/punctuation + keep latin
+  # match pre processing
   comment <- tolower(comment)
-  comment <- gsub("[^a-z\\s]", " ", comment)  # only keep letters and spaces
+  comment <- gsub("[^a-z\\s]", " ", comment)
   tokens <- unlist(strsplit(comment, "\\s+"))
   tokens <- tokens[tokens %in% vocab]
   
@@ -404,13 +404,14 @@ get_comment_embedding <- function(comment, embeddings, vocab) {
   }
 }
 
-# Apply to all comments
+# do this to all comments
 comment_vectors <- t(sapply(restaurant_raw$Comment, get_comment_embedding,
                             embeddings = restaurant_embeds,
                             vocab = embedding_vocab))
 
 # Convert to data frame
 comment_df <- as.data.frame(comment_vectors)
+# add star rating to dataframe
 comment_df$StarRating <- restaurant_raw$StarRating 
 
 # separate into train and test
@@ -418,43 +419,14 @@ train_index <- sample(nrow(comment_df), 0.8 * nrow(comment_df))
 train_data <- comment_df[train_index, ]
 test_data <- comment_df[-train_index, ]
 
-library(randomForest)
-rf_model <- randomForest(StarRating ~ ., data = train_data, ntree = 250, mtry = sqrt(ncol(train_data)))
-preds <- predict(rf_model, newdata = train_data)
+```
 
-sqrt(mean((preds - train_data$StarRating)^2))
+## Best performing model
 
-preds_test <- predict(rf_model, newdata = test_data)
-sqrt(mean((preds_test - test_data$StarRating)^2))
-
-residuals <- preds - test_data$StarRating
-sst <- sum((test_data$StarRating - mean(test_data$StarRating))^2)
-sse <- sum(residuals^2)
-r_squared <- 1 - (sse / sst)
-
-# hypertuning
-mtry_vals <- c(2, sqrt(ncol(train_data)), ncol(train_data) / 2)
-ntree_vals <- c(100, 250, 500)
-
-results <- data.frame(mtry = numeric(), ntree = numeric(), RMSE = numeric())
-
-for (m in mtry_vals) {
-  for (n in ntree_vals) {
-    set.seed(123)
-    rf_model <- randomForest(
-      StarRating ~ ., data = train_data,
-      mtry = floor(m), ntree = n
-    )
-    preds <- predict(rf_model, newdata = test_data)
-    rmse <- sqrt(mean((preds - test_data$StarRating)^2))
-    results <- rbind(results, data.frame(mtry = m, ntree = n, RMSE = rmse))
-  }
-}
-
-results[order(results$RMSE), ]
-
+```{r svm}
 # support vector machine
 library(e1071)
+
 # manual hypertuning for svm to find best values
 cost_vals <- c(0.1, 1, 10)
 gamma_vals <- c(0.01, 0.1, 1)
@@ -479,27 +451,42 @@ for (c in cost_vals) {
 
 results[order(results$RMSE), ]
 
-# best model parameters
+# using best model parameters
 svm_model <- svm(StarRating ~ ., data = train_data, kernel = "radial", cost = 1, gamma = .01, epsilon = 0.3)
 
 svm_train_preds <- predict(svm_model, newdata = train_data)
-# RMSE for training data
+# RMSE for training set
 sqrt(mean((svm_train_preds - train_data$StarRating)^2))
+# MAE on training set
+mean(abs(svm_train_preds - train_data$StarRating))
 
 # Predict on test set
 svm_preds <- predict(svm_model, newdata = test_data)
+# RMSE for testing data
 sqrt(mean((svm_preds - test_data$StarRating)^2))
 
+# MAE on test set
+mean(abs(svm_preds - test_data$StarRating))
+
+# find residuals and R-squared values
 svm_residuals <- svm_preds - test_data$StarRating
 svm_sst <- sum((test_data$StarRating - mean(test_data$StarRating))^2)
 svm_sse <- sum(svm_residuals^2)
 svm_r_squared <- 1 - (svm_sse / svm_sst)
-
 svm_r_squared
+```
 
-## low R squared, .3, tough to determine ratings just through text. 
-# language doesn't explain much rating variation
+Using word embeddings as predictors, we were able to get an RMSE of .307. This means
+that on average, the models predictions are about .307 units away from the actual
+star rating for the restaurant. The model also had an R-squared value of .118, so
+only about 11.8% of the variance in star rating was explained by the model. This number
+is quite low, which tells us that it is tough to determine ratings just through text. 
 
+
+
+# Appendix
+
+```{r lm model}
 lm_model <- lm(StarRating ~., data = train_data)
 
 lm_train_preds <- predict(lm_model, newdata = train_data)
@@ -508,11 +495,6 @@ sqrt(mean((lm_train_preds - train_data$StarRating)^2))
 lm_preds <- predict(lm_model, newdata = test_data)
 sqrt(mean((lm_preds - test_data$StarRating)^2))
 
-plot(test_data$StarRating, lm_preds,
-     xlab = "Actual Star Rating",
-     ylab = "Predicted Star Rating",
-     main = "Actual vs. Predicted",
-     pch = 16, col = rgb(0,0,1,0.3))
 
 # glmnet
 library(glmnet)
@@ -553,88 +535,42 @@ lm_sse <- sum(lm_residuals^2)
 lm_r_squared <- 1 - (lm_sse / lm_sst)
 
 lm_r_squared
-
-## SVM model performed best so far
-plot(test_data$StarRating, svm_preds, 
-     xlab = "Actual", ylab = "Predicted", 
-     main = "Actual vs. Predicted Star Ratings")
-
 ```
 
-```{r tfidf predictions}
-topics_df <- as.data.frame(topics_matrix)
-topics_df$StarRating <- restaurant_raw$StarRating
 
-train_indices <- sample(seq_len(nrow(topics_df)), size = 0.8 * nrow(topics_df))
-train_data <- topics_df[train_indices, ]
-test_data <- topics_df[-train_indices, ]
+```{r rf}
+library(randomForest)
+rf_model <- randomForest(StarRating ~ ., data = train_data, ntree = 250, mtry = sqrt(ncol(train_data)))
+preds <- predict(rf_model, newdata = train_data)
 
-lm_model <- lm(StarRating ~ ., data = train_data)
+sqrt(mean((preds - train_data$StarRating)^2))
 
-preds <- predict(lm_model, newdata = test_data)
-sqrt(mean((preds - test_data$StarRating)^2))
+preds_test <- predict(rf_model, newdata = test_data)
+sqrt(mean((preds_test - test_data$StarRating)^2))
 
+residuals <- preds - test_data$StarRating
+sst <- sum((test_data$StarRating - mean(test_data$StarRating))^2)
+sse <- sum(residuals^2)
+r_squared <- 1 - (sse / sst)
 
-X <- as.matrix(train_data[, -which(names(train_data) == "StarRating")])
-y <- train_data$StarRating
+# hypertuning
+mtry_vals <- c(2, sqrt(ncol(train_data)), ncol(train_data) / 2)
+ntree_vals <- c(100, 250, 500)
 
-X_test <- as.matrix(test_data[, -which(names(test_data) == "StarRating")])
-y_test <- test_data$StarRating
+results <- data.frame(mtry = numeric(), ntree = numeric(), RMSE = numeric())
 
-
-ridge_model <- cv.glmnet(X, y, alpha = 0)
-best_lambda_ridge <- ridge_model$lambda.min
-
-
-lasso_model <- cv.glmnet(X, y, alpha = 1)
-best_lambda_lasso <- lasso_model$lambda.min
-
-# Ridge Predictions
-ridge_preds <- predict(ridge_model, s = best_lambda_ridge, newx = X_test)
-ridge_rmse <- sqrt(mean((ridge_preds - y_test)^2))
-
-# Lasso Predictions
-lasso_preds <- predict(lasso_model, s = best_lambda_lasso, newx = X_test)
-lasso_rmse <- sqrt(mean((lasso_preds - y_test)^2))
-
-elastic_model <- cv.glmnet(X, y, alpha = .5)
-best_lambda_elastic <- elastic_model$lambda.min
-
-elastic_preds <- predict(elastic_model, s = best_lambda_elastic, newx = X_test)
-elastic_rmse <- sqrt(mean((elastic_preds - y_test)^2))
-elastic_rmse
-ridge_rmse
-lasso_rmse
-
-svm_model <- svm(StarRating ~ ., data = train_data, kernel = "radial", cost = 1, gamma = .01, epsilon = 0.3)
-svm_train_preds <- predict(svm_model, newdata = train_data)
-# RMSE for training data
-sqrt(mean((svm_train_preds - train_data$StarRating)^2))
-
-# Predict on test set
-svm_preds <- predict(svm_model, newdata = test_data)
-sqrt(mean((svm_preds - test_data$StarRating)^2))
-
-cost_vals <- c(0.1, 1, 10)
-gamma_vals <- c(0.01, 0.1, 1)
-epsilon_vals <- c(0.1, 0.2, 0.3)
-
-results <- data.frame(cost = numeric(), gamma = numeric(), epsilon = numeric(), RMSE = numeric())
-
-for (c in cost_vals) {
-  for (g in gamma_vals) {
-    for (e in epsilon_vals) {
-      model <- svm(
-        StarRating ~ ., data = train_data,
-        kernel = "radial", cost = c, gamma = g, epsilon = e
-      )
-      preds <- predict(model, newdata = test_data)
-      rmse <- sqrt(mean((preds - test_data$StarRating)^2))
-      
-      results <- rbind(results, data.frame(cost = c, gamma = g, epsilon = e, RMSE = rmse))
-    }
+for (m in mtry_vals) {
+  for (n in ntree_vals) {
+    rf_model <- randomForest(
+      StarRating ~ ., data = train_data,
+      mtry = floor(m), ntree = n
+    )
+    preds <- predict(rf_model, newdata = test_data)
+    rmse <- sqrt(mean((preds - test_data$StarRating)^2))
+    results <- rbind(results, data.frame(mtry = m, ntree = n, RMSE = rmse))
   }
 }
 
-summary(lm_model)
+results[order(results$RMSE), ]
+
 ```
