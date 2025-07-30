@@ -44,19 +44,19 @@ In the sections that follow, we’ll walk through a structured analysis of Yelp 
 set.seed(42)
 
 # Import packages
-install.packages("quanteda")
-install.packages("tidytext")
-install.packages("tm")
-install.packages("text2vec")
-install.packages("wordcloud")
-install.packages("topicmodels")
-install.packages("irlba")
-if (!require(wordVectors)) {
-  if (!(require(devtools))) {
-    install.packages("devtools")
-  }
-  devtools::install_github("bmschmidt/wordVectors")
-}
+# install.packages("quanteda")
+# install.packages("tidytext")
+# install.packages("tm")
+# install.packages("text2vec")
+# install.packages("wordcloud")
+# install.packages("topicmodels")
+# install.packages("irlba")
+# if (!require(wordVectors)) {
+#   if (!(require(devtools))) {
+#     install.packages("devtools")
+#   }
+#   devtools::install_github("bmschmidt/wordVectors")
+# }
 
 library(wordVectors)
 library(tidyverse)
@@ -179,8 +179,8 @@ restaurant_raw %>%
 restaurant_raw_tokens <- tokens(restaurant_raw$Comment,
                                what="word", remove_numbers=T,
                                remove_punct=T, remove_symbols=T) |>
-  tokens_remove(stopwords("en")) |>
-  tokens_tolower()
+  tokens_tolower() |>
+  tokens_remove(c(stopwords("en"), "food", "restaurant" ))
 
 # Create DFM, removing terms which occur in less than 1% of all docs and more than 90% of all docs.
 restaurant_raw_dfm <- restaurant_raw_tokens  |>
@@ -206,26 +206,25 @@ prep_word2vec("restaurant_corpus.txt",
 num_cores = detectCores()
 ```
 
-```{r word2vec Training}
+```{r word2vec Training, results='hide'}
 
-restaurant_model <- train_word2vec(
-  train_file = "restaurant_corpus_clean.txt",
-  output_file = "restaurant_vectors.bin",
-  vectors = 100,         # embedding size
-  window = 5,            # context window size
-  min_count = 5,         # ignore words that appear fewer than 5 times
-  threads = num_cores - 1,           # use multiple CPU cores
-  iter = 10              # number of training iterations
-)
+# restaurant_model <- train_word2vec(
+#   train_file = "restaurant_corpus_clean.txt",
+#   output_file = "restaurant_vectors.bin",
+#   vectors = 100,         # embedding size
+#   window = 5,            # context window size
+#   min_count = 5,         # ignore words that appear fewer than 5 times
+#   threads = num_cores - 1,           # use multiple CPU cores
+#   iter = 10,            # number of training iterations
+#   force = T
+# )
 
 # Load the embeddings for use
 restaurant_embeds <- read.vectors("restaurant_vectors.bin")
 
 # Test embeddings
-closest_to(restaurant_embeds, restaurant_embeds[["pizza"]], n = 10)
+closest_to(restaurant_embeds, restaurant_embeds[["gross"]], n = 10)
 ```
-
-
 # LDA
 
 LDA (Latent Dirichlet Allocation) is a topic modeling technique that helps uncover hidden themes in large sets of text data. Applying it to restaurant comments allows us to identify common topics—like service quality, cuisine types, or ambiance—without reading every review manually. This provides a scalable way to summarize customer feedback and understand what people are consistently saying about LA’s top restaurants.
@@ -234,31 +233,31 @@ Let's start with finding our optimal k value.
 
 ## Finding K
 ```{r optimize k}
-dtm_sparse <- convert(restaurant_raw_dfm, to = "topicmodels")
-
-# Remove sparse terms to reduce dimensionality
-# dtm_sparse <- removeSparseTerms(dtm_converted, 0.98)
-
-# Remove empty rows from DTM
-row_totals <- apply(dtm_sparse, 1, sum)
-dtm_filtered <- dtm_sparse[row_totals > 0, ]
-
-#remotes::install_github("nikita-moor/ldatuning")
-library(ldatuning)
-
-# Compute the K value "scores" from K=2 to K=25
-result <- FindTopicsNumber(
-    dtm_filtered,
-    topics = seq(from = 2, to = 25, by = 1),
-    metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
-    method = "Gibbs",#Gibbs can used too
-    control = list(seed = 1971),
-    mc.cores = 2L,
-    return_models= TRUE,
-    verbose = TRUE
-)
-
-FindTopicsNumber_plot(result)
+# dtm_sparse <- convert(restaurant_raw_dfm, to = "topicmodels")
+# 
+# # Remove sparse terms to reduce dimensionality
+# # dtm_sparse <- removeSparseTerms(dtm_converted, 0.98)
+# 
+# # Remove empty rows from DTM
+# row_totals <- apply(dtm_sparse, 1, sum)
+# dtm_filtered <- dtm_sparse[row_totals > 0, ]
+# 
+# #remotes::install_github("nikita-moor/ldatuning")
+# library(ldatuning)
+# 
+# # Compute the K value "scores" from K=2 to K=25
+# result <- FindTopicsNumber(
+#     dtm_filtered,
+#     topics = seq(from = 2, to = 25, by = 1),
+#     metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+#     method = "Gibbs",#Gibbs can used too
+#     control = list(seed = 1971),
+#     mc.cores = 2L,
+#     return_models= TRUE,
+#     verbose = TRUE
+# )
+# 
+# FindTopicsNumber_plot(result)
 ```
 
 We will use 25 topics because that appears to be the optimal number of topics based on the ldatuning model. 
@@ -381,7 +380,13 @@ ggplot(restaurant_raw, aes(x = as.factor(Assigned_Topic))) +
 
 ```
 
-To analyze the key themes in customer feedback, we applied Latent Semantic Analysis (LSA). After cleaning and preprocessing the review text which involved removing punctuation, numbers, stop words, and standardizing the text, the clean comments were transformed using TF-IDF vectorization, which weights terms based on their importance in the context of all reviews. Singular Value Decomposition (SVD) was then used to reduce the dimensionality of this matrix and extract five latent topics, each representing a cluster of frequently co-occurring words. Each review was assigned to the topic it aligned with most strongly. The topic distribution revealed that Topic 2 dominated overwhelmingly, with over 2,000 reviews assigned to it, while the remaining topics had very few reviews. This indicates that one central theme is driving the majority of customer sentiment. Word clouds generated for each topic show that the most frequently mentioned words include “great,” “amazing,” “food,” and “service,” suggesting that the dominant topic likely reflects overall positive dining experiences, with customers praising food quality and service. This insight helps highlight what customers value most and underscores the importance of consistently delivering excellent food and service in the restaurant industry.
+To analyze the key themes in customer feedback, we applied Latent Semantic Analysis (LSA). After cleaning and preprocessing the review text which involved removing punctuation, numbers, stop words, and standardizing the text, the clean comments were transformed using TF-IDF vectorization, which weights terms based on their importance in the context of all reviews. 
+
+Singular Value Decomposition (SVD) was then used to reduce the dimensionality of this matrix and extract five latent topics, each representing a cluster of frequently co-occurring words. Each review was assigned to the topic it aligned with most strongly. The topic distribution revealed that Topic 2 dominated overwhelmingly, with over 2,000 reviews assigned to it, while the remaining topics had very few reviews. 
+
+This indicates that one central theme is driving the majority of customer sentiment. Word clouds generated for each topic show that the most frequently mentioned words include “great,” “amazing,” “food,” and “service,” suggesting that the dominant topic likely reflects overall **positive dining experiences, with customers praising food quality and service**. 
+
+This insight helps highlight what customers value most and underscores the importance of consistently delivering excellent food and service in the restaurant industry.
 
 # Predicting Star Rating Using Word Embeddings
 
@@ -574,3 +579,36 @@ for (m in mtry_vals) {
 results[order(results$RMSE), ]
 
 ```
+
+
+# A Deeper Dive into Results
+
+From the LSA, we found that customers tend to focus on the quality of food and service in their reviews, but what constitutes good food or good service? To better understand this, we will use word embeddings to find recommendations for resaurant owners to improve their reviews.
+
+```{r}
+# See which tokens are closest to good service
+restaurant_embeds |> closest_to(~"good" + "service")
+```
+
+Tokens associated with good service include "plating" and "swift", suggesting that customers value quick service and presentation when writing reviews.
+
+```{r}
+# See which tokens are closest to bad service
+restaurant_embeds |> closest_to(~"bad" + "service")
+```
+
+Customers tended to feel like service was bad if they felt staff and the environment was pretentious. Interestingly, "hookah" was associated with bad service. Patrons may be turned off by restaurants near hookah bars or restaurants that offer hookah.
+
+```{r}
+# See which tokens are closest to good food
+restaurant_embeds |> closest_to(~"good" + "food")
+```
+
+Customers associated good food with good plating and quick service. 
+
+```{r}
+# See which tokens are closest to good food
+restaurant_embeds |> closest_to(~"gross" + "food")
+```
+
+Interestingly, "beauty" is associated with gross food. While the plating may be important for many customers, ultimately the taste of the food may be more important. 
